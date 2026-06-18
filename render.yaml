@@ -1,0 +1,10 @@
+﻿services:
+  - type: cron
+    name: bbs-moderation-checker
+    runtime: node
+    buildCommand: npm install --production
+    startCommand: node index.js
+    schedule: "0 * * * *"
+    env:
+      - key: NODE_ENV
+        value: production

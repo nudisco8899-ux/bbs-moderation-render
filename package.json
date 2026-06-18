@@ -1,0 +1,1 @@
+﻿{"name":"bbs-moderation-render","version":"1.0.0","description":"ASKA BBS掲示板モデレーション自動化","main":"index.js","scripts":{"start":"node index.js"},"engines":{"node":"18"},"dependencies":{"playwright":"^1.45.0","cheerio":"^1.0.0-rc.12"}}
