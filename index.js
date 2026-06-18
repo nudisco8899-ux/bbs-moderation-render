@@ -335,7 +335,7 @@ async function saveRequest(postId, text, classification) {
 function getLearningContext() {
   let decisions = [];
   try {
-    decisions = require('fs').readFileSync(DECISIONS_FILE, 'utf-8')
+    decisions = fs.readFileSync(DECISIONS_FILE, 'utf-8')
       .split('\n')
       .filter(line => line.trim())
       .map(line => JSON.parse(line));
