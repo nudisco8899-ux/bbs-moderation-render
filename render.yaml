@@ -3,7 +3,7 @@
     name: bbs-moderation-checker
     runtime: node
     buildCommand: npm install --production
-    startCommand: node /opt/render/project/index.js
+    startCommand: node index.js
     schedule: "0 * * * *"
     env:
       - key: NODE_ENV
