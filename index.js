@@ -435,7 +435,7 @@ ${body}
 
 try {
   const message = await anthropicClient.messages.create({
-    model: 'claude-opus-4-1',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 200,
     messages: [
       {
@@ -523,11 +523,12 @@ for (const post of posts) {
     aiCallCount++;
 
     if (result.classification && result.confidence !== null) {
-      // Only notify for "要望" (requests)
-    if (result.classification === '要望') {
+      // Notify for "要望" (requests) and "ネガティブ" (complaints about shop/staff)
+    if (result.classification === '要望' || result.classification === 'ネガティブ') {
       detectedCount++;
+      const label = result.classification === '要望' ? '要望・フィードバック' : '苦情・批判';
       const msg =
-        `【投稿者の要望・フィードバック】\n` +
+        `【投稿者の${label}】\n` +
         `記事番号: No.${postId}\n` +
         `投稿者: ${post.name}\n` +
         `タイトル: ${post.title}\n` +
