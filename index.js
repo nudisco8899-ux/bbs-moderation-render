@@ -44,9 +44,28 @@ const URL_PATTERN = /(https?:\/\/|www\.)[\w./?#%&=+~:;@-]+/gi;
 const SNS_PATTERN = /(LINE|ライン|Line|Telegram|テレグラム|カカオ|KakaoTalk|Kakao|Skype|スカイプ|Instagram|インスタ|Twitter|ツイッター|DM|ディーエム|WhatsApp|Discord|ディスコード)/i;
 const INVITE_PATTERN = /(交換し|教えて|やってます|やってる|連絡して|追加して|友達に|登録して|招待|アド(レス)?教え|(LINE|ライン|Line|Telegram|テレグラム|カカオ|Kakao|Skype|スカイプ|Instagram|インスタ|Twitter|ツイッター|DM|WhatsApp|Discord|ディスコード)\s*(の)?\s*ID)/i;
 
+const ID_PATTERN = /[a-zA-Z0-9]{4,}/;
+
 function detectSNSInvite(text) {
-  const sentences = text.split(/[。！？\n]/);
-  return sentences.some(s => SNS_PATTERN.test(s) && INVITE_PATTERN.test(s));
+  const sentences = text.split(/[。！？\n]/).map(s => s.trim()).filter(Boolean);
+
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i];
+    if (!SNS_PATTERN.test(s)) continue;
+
+    // 条件1: 既存の勧誘語マッチ(同一文)
+    if (INVITE_PATTERN.test(s)) return true;
+
+    // 条件2: SNS名のみの行の直後にID風文字列の行がある(改行で分離されたパターン)
+    const next = sentences[i + 1];
+    if (next && ID_PATTERN.test(next) && !SNS_PATTERN.test(next)) return true;
+
+    // 条件3: 同一行内にSNS名+ID風文字列が混在
+    const withoutSnsName = s.replace(SNS_PATTERN, '');
+    if (ID_PATTERN.test(withoutSnsName)) return true;
+  }
+
+  return false;
 }
 
 const STATE_FILE = process.env.STATE_FILE || 'seen_posts.json';
