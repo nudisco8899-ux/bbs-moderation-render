@@ -63,6 +63,10 @@ function detectSNSInvite(text) {
     // 条件3: 同一行内にSNS名+ID風文字列が混在
     const withoutSnsName = s.replace(SNS_PATTERN, '');
     if (ID_PATTERN.test(withoutSnsName)) return true;
+
+    // 条件4: SNS名の言及があるだけで、勧誘語やID風文字列が伴わない場合も検知
+    // (この掲示板ではSNS名の単独言及自体が誘導目的である実態が多いため)
+    return true;
   }
 
   return false;
