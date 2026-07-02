@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import iconv from 'iconv-lite';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -259,6 +260,7 @@ async function fetchBoardHtml() {
     const response = await axios.get(BOARD_URL, {
       headers: REQUEST_HEADERS,
       timeout: 15000,
+      responseType: 'arraybuffer',
     });
 
   if (response.status !== 200) {
@@ -269,7 +271,7 @@ async function fetchBoardHtml() {
     return null;
   }
 
-  return response.data;
+  return iconv.decode(Buffer.from(response.data), 'Shift_JIS');
   } catch (e) {
     logger.error(`Board fetch error: ${e.message}`);
     return null;
@@ -527,7 +529,6 @@ for (const post of posts) {
     continue; // Skip already processed posts
   }
 
-  console.log('[DEBUG] postId=' + postId + ' text=' + JSON.stringify(post.text));
   const detected = findViolations(post.text);
 
   if (!detected || detected.length === 0) {

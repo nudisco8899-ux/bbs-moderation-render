@@ -11,9 +11,10 @@
     "node": "20"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
     "axios": "^1.7.0",
     "cheerio": "^1.0.0-rc.12",
     "dotenv": "^16.4.0",
-    "@anthropic-ai/sdk": "^0.27.0"
+    "iconv-lite": "^0.7.2"
   }
 }
