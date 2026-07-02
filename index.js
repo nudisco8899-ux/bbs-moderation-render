@@ -527,6 +527,7 @@ for (const post of posts) {
     continue; // Skip already processed posts
   }
 
+  console.log('[DEBUG] postId=' + postId + ' text=' + JSON.stringify(post.text));
   const detected = findViolations(post.text);
 
   if (!detected || detected.length === 0) {
