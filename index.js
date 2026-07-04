@@ -432,18 +432,19 @@ if (violations && violations.length > 0) {
 }
 
 const learningContext = getLearningContext();
-  const systemPrompt = `あなたは掲示板のモデレーターです。投稿を以下の4つに分類してください。
+  const systemPrompt = `あなたは掲示板のモデレーターです。投稿を以下の5つに分類してください。
 
   【分類】
-  1. **違反** - スパム、誹謗中傷、サービス規約違反の内容
-  2. **ネガティブ** - 批判や苦情だが、サービス改善の具体的な提案を含まないもの
-  3. **要望** - 機能リクエスト、改善案、フィードバック
-  4. **通常** - 上記に該当しない、建設的な質問・意見・雑談など
+  1. **違反** - スパム、サービス規約違反の内容
+  2. **誹謗中傷** - 特定の個人・グループへの人格攻撃・侮辱・悪口。対象は店・スタッフに限らず、他の投稿者や第三者への中傷も含む
+  3. **ネガティブ** - 批判や苦情だが、誹謗中傷には該当せず、サービス改善の具体的な提案も含まないもの
+  4. **要望** - 機能リクエスト、改善案、フィードバック
+  5. **通常** - 上記に該当しない、建設的な質問・意見・雑談など
 
   【回答形式】
   以下のJSON（1行）で返してください:
   {
-  "classification": "違反" | "ネガティブ" | "要望" | "通常",
+  "classification": "違反" | "誹謗中傷" | "ネガティブ" | "要望" | "通常",
   "confidence": 0～100,
   "reason": "判定理由（20字以内）"
   }
@@ -487,6 +488,7 @@ try {
     );
 
   await saveRequest(postId, text, result.classification);
+  await saveDecision(postId, result.classification, result.confidence);
 
   return result;
 } catch (e) {
@@ -548,10 +550,19 @@ for (const post of posts) {
     aiCallCount++;
 
     if (result.classification && result.confidence !== null) {
-      // Notify for "要望" (requests) and "ネガティブ" (complaints about shop/staff)
-    if (result.classification === '要望' || result.classification === 'ネガティブ') {
+      // Notify for "要望" (requests), "ネガティブ" (complaints), and "誹謗中傷" (defamation/insults)
+    if (
+      result.classification === '要望' ||
+      result.classification === 'ネガティブ' ||
+      result.classification === '誹謗中傷'
+    ) {
       detectedCount++;
-      const label = result.classification === '要望' ? '要望・フィードバック' : '苦情・批判';
+      const label =
+        result.classification === '要望'
+          ? '要望・フィードバック'
+          : result.classification === '誹謗中傷'
+          ? '誹謗中傷・悪口'
+          : '苦情・批判';
       const msg =
         `【投稿者の${label}】\n` +
         `記事番号: No.${postId}\n` +
