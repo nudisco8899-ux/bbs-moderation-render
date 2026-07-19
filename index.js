@@ -460,17 +460,33 @@ ${body}
 この投稿をどう分類しますか？（JSON形式で1行で返す）`;
 
 try {
-  const message = await anthropicClient.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 200,
-    messages: [
-      {
-        role: 'user',
-        content: userPrompt,
-      },
-      ],
-    system: systemPrompt,
-  });
+  let message;
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      message = await anthropicClient.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content: userPrompt,
+          },
+        ],
+        system: systemPrompt,
+      });
+      break; // 成功したらリトライループを抜ける
+    } catch (apiError) {
+      if (attempt === maxRetries) {
+        throw apiError; // 最終試行でも失敗したら外側のcatchに投げる
+      }
+      const waitMs = attempt * 1000; // 1秒→2秒と待機を延ばす
+      logger.warning(
+        `AI classification retry (No.${postId}): attempt ${attempt} failed (${apiError.message}), retrying in ${waitMs}ms`
+        );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
 
   let responseText = message.content[0].text.trim();
 
