@@ -171,7 +171,7 @@ const logger = new Logger(LOG_FILE);
 // ============================================================
 // Telegram Notification
 // ============================================================
-async function sendTelegramNotification(message) {
+async function sendTelegramNotification(message, postId = null) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
           logger.warning('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set.');
           return false;
@@ -183,6 +183,16 @@ async function sendTelegramNotification(message) {
           text: message,
           disable_web_page_preview: true,
     };
+
+  // 判定フィードバック用のボタンを付与（post_id が分かる通知のみ）
+  if (postId) {
+        data.reply_markup = {
+                inline_keyboard: [[
+                  { text: '✅ 判定は正しい', callback_data: `j|${postId}|ok` },
+                  { text: '❌ 誤検知（通常）', callback_data: `j|${postId}|no` },
+                ]],
+        };
+  }
 
   try {
         const response = await axios.post(url, data, { timeout: 10000 });
@@ -196,6 +206,155 @@ async function sendTelegramNotification(message) {
         logger.error(`Telegram notification error: ${e.message}`);
         return false;
   }
+}
+
+// ============================================================
+// Telegram Feedback (判定ボタンの受信)
+// ============================================================
+const OFFSET_FILE = process.env.OFFSET_FILE || 'telegram_offset.json';
+
+function loadUpdateOffset() {
+    try {
+          return JSON.parse(fs.readFileSync(OFFSET_FILE, 'utf-8')).offset || 0;
+    } catch (e) {
+          return 0;
+    }
+}
+
+function saveUpdateOffset(offset) {
+    try {
+          fs.writeFileSync(OFFSET_FILE, JSON.stringify({ offset }), 'utf-8');
+    } catch (e) {
+          logger.warning(`Failed to save update offset: ${e.message}`);
+    }
+}
+
+// decisions.jsonl の該当 post_id（最新の行）に user_judgment を書き込む
+function applyUserJudgment(postId, judgment) {
+    let lines;
+    try {
+          lines = fs.readFileSync(DECISIONS_FILE, 'utf-8').split('\n').filter(l => l.trim());
+    } catch (e) {
+          logger.warning(`Failed to read decisions: ${e.message}`);
+          return null;
+    }
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+        let obj;
+        try {
+                obj = JSON.parse(lines[i]);
+        } catch (e) {
+                continue;
+        }
+        if (String(obj.post_id) !== String(postId)) {
+                continue;
+        }
+        obj.user_judgment = judgment;
+        obj.judged_at = new Date().toISOString();
+        lines[i] = JSON.stringify(obj);
+        try {
+                fs.writeFileSync(DECISIONS_FILE, lines.join('\n') + '\n', 'utf-8');
+        } catch (e) {
+                logger.warning(`Failed to write decisions: ${e.message}`);
+                return null;
+        }
+        return obj.ai_classification;
+  }
+    logger.warning(`No.${postId} not found in decisions.jsonl`);
+    return null;
+}
+
+// cron 実行の冒頭で、前回以降に押されたボタンをまとめて処理する
+async function processTelegramFeedback() {
+    if (!TELEGRAM_BOT_TOKEN) {
+          return;
+    }
+
+  const base = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+    let updates;
+    try {
+          const res = await axios.get(`${base}/getUpdates`, {
+                  params: {
+                    offset: loadUpdateOffset(),
+                    timeout: 0,
+                    allowed_updates: JSON.stringify(['callback_query']),
+                  },
+                  timeout: 15000,
+                });
+          if (!res.data || !res.data.ok) {
+                  logger.warning('getUpdates returned not ok');
+                  return;
+          }
+          updates = res.data.result || [];
+    } catch (e) {
+          logger.warning(`getUpdates error: ${e.message}`);
+          return;
+    }
+
+  if (updates.length === 0) {
+        return;
+  }
+
+  let handled = 0;
+    let maxUpdateId = 0;
+
+  for (const u of updates) {
+        if (u.update_id >= maxUpdateId) {
+                maxUpdateId = u.update_id;
+        }
+        const cq = u.callback_query;
+        if (!cq || !cq.data || !cq.data.startsWith('j|')) {
+                continue;
+        }
+
+    const [, postId, verdict] = cq.data.split('|');
+        const aiClass = applyUserJudgment(postId, verdict === 'ok' ? null : '通常');
+        // 「正しい」の場合は AI 判定をそのまま人間判定として採用する
+        const judgment = verdict === 'ok' ? (aiClass || '通常') : '通常';
+        if (verdict === 'ok') {
+                applyUserJudgment(postId, judgment);
+        }
+
+    const label = verdict === 'ok'
+          ? `✅ 正しい判定として記録（${judgment}）`
+          : '❌ 誤検知として記録（通常）';
+
+    // ポップアップ応答。ボタン押下から取り込みまで時間が空くと
+    // callback_query の有効期限（約1分）が切れて 400 が返るが、
+    // 記録自体は成功しているためエラー扱いしない。
+    try {
+          await axios.post(`${base}/answerCallbackQuery`, {
+                  callback_query_id: cq.id,
+                  text: label,
+                }, { timeout: 10000 });
+    } catch (e) {
+          if (e.response?.status !== 400) {
+                  logger.warning(`answerCallbackQuery error: ${e.message}`);
+          }
+    }
+
+    // ボタンを消して、結果をメッセージ末尾に追記する
+    try {
+          await axios.post(`${base}/editMessageText`, {
+                  chat_id: cq.message.chat.id,
+                  message_id: cq.message.message_id,
+                  text: `${cq.message.text}\n\n── ${label}`,
+                  disable_web_page_preview: true,
+                }, { timeout: 10000 });
+    } catch (e) {
+          logger.warning(`editMessageText error: ${e.message}`);
+    }
+
+    handled++;
+        logger.info(`Feedback recorded: No.${postId} → ${judgment} (verdict: ${verdict})`);
+  }
+
+  if (maxUpdateId > 0) {
+        saveUpdateOffset(maxUpdateId + 1);
+  }
+    if (handled > 0) {
+          logger.info(`Telegram feedback processed: ${handled} item(s)`);
+    }
 }
 
 // ============================================================
@@ -606,7 +765,7 @@ async function checkBoard() {
                                 `キーワード一致: 店員/スタッフ\n` +
                                 `AI評価: ${classification} (信度: ${confidence}%)${reasonNote}`;
 
-                if (await sendTelegramNotification(msg)) {
+                if (await sendTelegramNotification(msg, postId)) {
                             newlySeen.add(postId);
                 } else {
                             logger.warning(`No.${postId} notification failed - will retry next run`);
@@ -639,7 +798,7 @@ async function checkBoard() {
                                           `本文一部: ${post.body.substring(0, 100)}\n\n` +
                                           `AI評価: ${aiResult.classification} (信度: ${aiResult.confidence}%)`;
 
-                      if (await sendTelegramNotification(msg)) {
+                      if (await sendTelegramNotification(msg, postId)) {
                                     newlySeen.add(postId);
                       } else {
                                     logger.warning(`No.${postId} notification failed - will retry next run`);
@@ -701,6 +860,8 @@ async function checkBoard() {
           if (NG_WORDS.length === 0) {
                   logger.warning('No NG words configured.');
           }
+          // 前回実行以降に押された判定ボタンを先に取り込む
+          await processTelegramFeedback();
           await checkBoard();
     } catch (e) {
           logger.error(`Unexpected error: ${e.message}`);
