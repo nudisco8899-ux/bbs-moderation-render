@@ -437,12 +437,20 @@ async function classifyPost(postId, title, body, name, violations) {
   const learningContext = getLearningContext();
     const systemPrompt = `あなたは掲示板のモデレーターです。投稿を以下の5つに分類してください。
 
+    【この掲示板の前提】
+    この掲示板は成人向けの出会い目的の掲示板です。来店予定の時刻、体型・身体的特徴、
+    プレイの嗜好といった、性的に露骨な自己紹介・募集の投稿は「通常」の投稿形式であり、
+    この板における正常な利用です。
+    性的表現が露骨であること自体を理由に「違反」と判定してはいけません。
+    投稿者が自分自身について書いている内容は、どれだけ露骨でも「通常」です。
+
     【分類】
-    1. **違反** - スパム、サービス規約違反の内容
+    1. **違反** - 外部SNS・他サイトへの誘導、連絡先(メールアドレス・ID・URL)の掲載、
+       商業目的の宣伝スパム、掲示板と無関係な荒らし投稿。この4種類に限定する
     2. **誹謗中傷** - 特定の個人・グループへの人格攻撃・侮辱・悪口。対象は店・スタッフに限らず、他の投稿者や第三者への中傷も含む
     3. **ネガティブ** - 批判や苦情だが、誹謗中傷には該当せず、サービス改善の具体的な提案も含まないもの
     4. **要望** - 機能リクエスト、改善案、フィードバック
-    5. **通常** - 上記に該当しない、建設的な質問・意見・雑談など
+    5. **通常** - 上記に該当しない投稿。自己紹介・募集・来店予告・建設的な質問・意見・雑談など
 
     【回答形式】
     以下のJSON（1行）で返してください:
@@ -464,12 +472,13 @@ async function classifyPost(postId, title, body, name, violations) {
 
   try {
         let message;
-        const maxRetries = 3;
+        const maxRetries = 5;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
                           message = await anthropicClient.messages.create({
                                       model: 'claude-haiku-4-5-20251001',
                                       max_tokens: 200,
+                                      temperature: 0,
                                       messages: [
                                         {
                                                         role: 'user',
@@ -483,7 +492,7 @@ async function classifyPost(postId, title, body, name, violations) {
                           if (attempt === maxRetries) {
                                       throw apiError; // 最終試行でも失敗したら外側のcatchに投げる
                           }
-                          const waitMs = attempt * 1000; // 1秒→2秒と待機を延ばす
+                          const waitMs = Math.min(30000, 1000 * Math.pow(2, attempt)) + Math.floor(Math.random() * 500); // 2s→4s→8s→16s（指数バックオフ＋ゆらぎ）
                   logger.warning(
                               `AI classification retry (No.${postId}): attempt ${attempt} failed (${apiError.message}), retrying in ${waitMs}ms`
                             );
@@ -515,6 +524,7 @@ async function classifyPost(postId, title, body, name, violations) {
         return {
                 classification: null,
                 confidence: null,
+                failed: true,
                 reason: `API error: ${e.message.substring(0, 30)}`,
         };
   }
@@ -576,7 +586,7 @@ async function checkBoard() {
                     // 「店員」「スタッフ」への言及はキーワード一致で確定検知。
                 // AI結果があればダブルチェックの参考情報として通知に付加する。
                 detectedCount++;
-                    const classification = aiResult?.classification || '要望';
+                    const classification = aiResult?.classification || 'AI判定なし';
                     const confidence = aiResult?.confidence ?? 100;
                     const reasonNote = aiResult?.reason ? ` / AI理由: ${aiResult.reason}` : '';
                     const msg =
@@ -601,7 +611,8 @@ async function checkBoard() {
                 if (
                             aiResult.classification === '要望' ||
                             aiResult.classification === 'ネガティブ' ||
-                            aiResult.classification === '誹謗中傷'
+                            aiResult.classification === '誹謗中傷' ||
+                            aiResult.classification === '違反'
                           ) {
                             detectedCount++;
                             const label =
@@ -609,6 +620,8 @@ async function checkBoard() {
                                 ? '要望・フィードバック'
                                             : aiResult.classification === '誹謗中傷'
                                 ? '誹謗中傷・悪口'
+                                            : aiResult.classification === '違反'
+                                ? '規約違反の疑い'
                                             : '苦情・批判';
                             const msg =
                                           `【投稿者の${label}】\n` +
@@ -626,6 +639,8 @@ async function checkBoard() {
                 } else {
                             newlySeen.add(postId);
                 }
+          } else if (aiResult && aiResult.failed) {
+                    logger.warning(`No.${postId} AI classification failed - will retry next run`);
           } else {
                     newlySeen.add(postId);
           }

@@ -2,3 +2,9 @@
 .env
 *.log
 .DS_Store
+
+# 運用データ・バックアップ（リポジトリに含めない）
+*.bak.*
+*.jsonl
+seen_posts.json
+reasontest.mjs
