@@ -333,16 +333,27 @@ async function processTelegramFeedback() {
           }
     }
 
-    // ボタンを消して、結果をメッセージ末尾に追記する
+    // ボタンは残したまま、結果をメッセージ末尾に表示する。
+    // 押し直しに備え、前回の結果行（── 以降）は削ってから付け直す。
+    const baseText = (cq.message.text || '').split('\n\n── ')[0];
     try {
           await axios.post(`${base}/editMessageText`, {
                   chat_id: cq.message.chat.id,
                   message_id: cq.message.message_id,
-                  text: `${cq.message.text}\n\n── ${label}`,
+                  text: `${baseText}\n\n── ${label}`,
                   disable_web_page_preview: true,
+                  reply_markup: {
+                    inline_keyboard: [[
+                              { text: '✅ 判定は正しい', callback_data: `j|${postId}|ok` },
+                              { text: '❌ 誤検知（通常）', callback_data: `j|${postId}|no` },
+                    ]],
+                  },
                 }, { timeout: 10000 });
     } catch (e) {
-          logger.warning(`editMessageText error: ${e.message}`);
+          // 同じボタンを続けて押した場合は内容が変わらず 400 になる（実害なし）
+          if (e.response?.status !== 400) {
+                  logger.warning(`editMessageText error: ${e.message}`);
+          }
     }
 
     handled++;
