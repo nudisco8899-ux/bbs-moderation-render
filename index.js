@@ -28,6 +28,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+const ALLOWED_USER_ID = process.env.ALLOWED_USER_ID || ''; // 未設定ならチャットIDのみで判定
 
 const NG_WORDS = (process.env.NG_WORDS || '')
   .split(',')
@@ -304,6 +305,16 @@ async function processTelegramFeedback() {
         }
         const cq = u.callback_query;
         if (!cq || !cq.data || !cq.data.startsWith('j|')) {
+                continue;
+        }
+        // 送信者チェック：通知先チャット以外・許可ユーザー以外からの操作は無視（返信もしない）
+        if (String(cq.message?.chat?.id) !== String(TELEGRAM_CHAT_ID) ||
+            (ALLOWED_USER_ID && String(cq.from?.id) !== String(ALLOWED_USER_ID))) {
+                logger.warning(`Ignored callback from unauthorized user ${cq.from?.id}`);
+                continue;
+        }
+        // データ形式チェック：j|<数字>|ok または j|<数字>|no 以外は無視
+        if (!/^j\|\d{1,10}\|(ok|no)$/.test(cq.data)) {
                 continue;
         }
 
